@@ -17,11 +17,13 @@ from datetime import datetime
 from torch.optim.lr_scheduler import StepLR
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(device)
-
+num_classes = 100
 dataset = MyCustomDataset("labels_100")
+#dataset = MyCustomDataset(category='labels_100',json_file_path="/home/marius/Documents/Projects/WLASL_v0.3.json", frame_location="/home/marius/Documents/Projects/Processed_data")
+
 dataset_size = (len(dataset))
 
-val_size = int(np.floor(dataset_size * 0.1))
+val_size = int(np.floor(dataset_size * 0.2))
 train_size = int(dataset_size - val_size)
 trainset, validset = random_split(dataset, [train_size, val_size])
 bs = 20
@@ -45,10 +47,9 @@ net = net.to(device)
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(net.parameters(), lr=0.1)
 criterion = criterion.to(device)
-scheduler = StepLR(optimizer, step_size = 1, gamma=0.1)
+scheduler = StepLR(optimizer, step_size = 10, gamma=0.1)
 def voting(outputs):
-    answer = [0] * (num_classes+1)
-    predictions = np.empty((bs,num_classes), np.dtype('float32'))
+    answer = np.array([0]*num_classes)
     y = torch.argmax(outputs, dim = 1)
     for instance in y:
         answer[instance] += 1
@@ -76,34 +77,41 @@ with open(filename,'w') as csvfile:
     Identification = 1
     csvwriter = csv.writer(csvfile)
     csvwriter.writerow(headers)
-    for epoch in range(2):  # loop over the dataset multiple times
-        
+    for epoch in range(30):  # loop over the dataset multiple times
+
         net.train()
         training_loss = 0.0
         running_acc = 0
         for i,(inputs, labels) in enumerate(dataloader_train):
             # get the inputs; data is a list of [inputs, labels]
-            inputs = inputs.view(-1, 3,16, 112, 112)
+            inputs = inputs.view(-1, 3,64, 224, 224)
+            inputs = inputs.float()
             inputs = inputs.permute(0,2,1,3,4)
             inputs = inputs.to(device)
             labels = torch.LongTensor(labels).to(device)
 
             optimizer.zero_grad()
-            predictions = np.empty((bs), np.dtype('float32'))
+            predictions = []
             inner_loss = 0
+
             for j in range((inputs.shape)[0]):
                 outputs = net(inputs[j])
-                labels_frames = [labels[j]] * 16
-                labels_frames = np.asarray(labels_frames)
-                labels_frames = torch.LongTensor(labels_frames).to(device)
-                loss = criterion(outputs, (labels_frames))
-                predictions[j] = voting(outputs)
+
+                frames_labels = ([labels[j]] * 64)
+                frames_labels = torch.tensor(frames_labels)
+                frames_labels = torch.LongTensor(frames_labels).to(device)
+                loss = criterion(outputs, (frames_labels))
+                predictions.append(voting(outputs))
                 loss.backward()
                 inner_loss += loss.item()
                 optimizer.step()
-            training_loss += (inner_loss/20)
-            running_acc += accuracy(predictions,labels)
-            if i%30 == 0:
+            training_loss += (inner_loss/bs)
+            predictions = torch.tensor(predictions)
+            predictions = predictions.to(device)
+            #running_acc += accuracy(predictions,labels)
+            correct = (predictions == labels).sum().item()
+            running_acc += (correct/(labels.size(0)))
+            if i%1 == 0:
                 #print("pred:", predictions)
                 csvwriter.writerow(['{}'.format(Identification),'{}'.format("Training"),'{}'.format(epoch),'{}'.format(training_loss/(i+1)),'{}'.format(running_acc/(i+1))])
                 print(f"Training phase, Epoch: {epoch}. Loss: {training_loss/(i+1)}. Accuracy: {running_acc/(i+1)}.")
@@ -111,28 +119,38 @@ with open(filename,'w') as csvfile:
 
         net.eval()
         valError = 0
+        running_acc = 0
         for i, (inputs,labels) in enumerate(dataloader_val):
             with torch.no_grad():
-                inputs = inputs.view(-1, 3,16, 112, 112)
+                # get the inputs; data is a list of [inputs, labels]
+                inputs = inputs.view(-1, 3,64, 224, 224)
                 inputs = inputs.permute(0,2,1,3,4)
+                inputs = inputs.float()
                 inputs = inputs.to(device)
                 labels = torch.LongTensor(labels).to(device)
 
-                predictions = np.empty((bs), np.dtype('float32'))
+                predictions = []
                 inner_loss = 0
                 for j in range((inputs.shape)[0]):
                     outputs = net(inputs[j])
-                    labels_frames = [labels[j]] * 16
-                    labels_frames = np.asarray(labels_frames)
-                    labels_frames = torch.LongTensor(labels_frames).to(device)
-                    loss = criterion(outputs, (labels_frames))
-                    predictions[j] = voting(outputs)
+
+                    frames_labels = ([labels[j]] * 64)
+                    frames_labels = torch.tensor(frames_labels)
+                    frames_labels = torch.LongTensor(frames_labels).to(device)
+                    loss = criterion(outputs, (frames_labels))
+                    predictions.append(voting(outputs))
                     inner_loss += loss.item()
-                running_acc += accuracy(predictions,labels)
-                valError += (inner_loss/20)
-            if i%20 == 0:
-                csvwriter.writerow(['{}'.format(Identification),'{}'.format("Validation"),'{}'.format(epoch),'{}'.format(valError/(i+1)),'{}'.format(accuracy(outputs,labels))])
-                print(f"Validation phase, Epoch: {epoch}. Loss: {valError/(i+1)}. Accuracy: {accuracy(outputs,labels)}.")
+                predictions = torch.tensor(predictions)
+                predictions = predictions.to(device)
+                #running_acc += accuracy(predictions,labels)
+                correct = (predictions == labels).sum().item()
+                valError += (inner_loss/bs)
+                #running_acc += accuracy(predictions,labels)
+                correct = (predictions == labels).sum().item()
+                running_acc += (correct/(labels.size(0)))
+            if i%1 == 0:
+                csvwriter.writerow(['{}'.format(Identification),'{}'.format("Validation"),'{}'.format(epoch),'{}'.format(valError/(i+1)),'{}'.format(running_acc/(i+1))])
+                print(f"Validation phase, Epoch: {epoch}. Loss: {valError/(i+1)}. Accuracy: {running_acc/(i+1)}.")
                 Identification += 1
         scheduler.step()
     csvwriter.writerow(title)

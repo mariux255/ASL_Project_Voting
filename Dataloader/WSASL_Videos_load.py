@@ -4,12 +4,15 @@ import json
 import cv2
 import os
 import numpy as np
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
+import natsort
 
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
-
 class MyCustomDataset(Dataset):
-    def __init__(self, category = "labels_100", json_file_path="/Users/mjo/Desktop/WLASL/WLASL_v0.3.json", video_file_path="/Users/mjo/Desktop/WLASL/WLASL2000", frame_location="/Users/mjo/Desktop/WLASL/Processed_data/"):
+    def __init__(self, category = "labels_100", json_file_path="/scratch/s174411/WLASL_v0.3.json", frame_location="/scratch/s174411/Processed_data"):
         self.frame_location = frame_location
         # Defining count_dictionary which contains the number of videos for each class
         # and defining video_id_dictionary which has all of the video id's for each class.
@@ -37,38 +40,56 @@ class MyCustomDataset(Dataset):
 
     def __getitem__(self, index):
         buffer, label = self.training_data[index]
-        buffer = self.to_tensor(buffer)
-        return [buffer, label]
+        images = []
+        for i in range(64):
+            path = buffer[i]
+            #print("PATH: ", path)
+            img = np.array(cv2.imread(path))
+            img = cv2.resize(img, (224, 224))
+            img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
+            #img = img/255
+            images.append(img)
+        images = np.array(images)
+        images = self.to_tensor(images)
+        #temp = buffer.transpose(1,2,3,0)
+        #img = temp[0]
+        #imgplot = plt.imshow(img)
+        #plt.show()
+        return [images, label]
 
 
     def __len__(self):
         return self.total_videos()
 
     def total_videos(self):
+
+
         sum_count = 0
         for label in self.labels_x:
             for video in self.video_id_dictionary[label]:
                 sum_count += 1
         return sum_count
-    
+
     def to_tensor(self, buffer):
-        return buffer.transpose((3, 0, 1, 2))
+        return torch.from_numpy(buffer.transpose(3, 0, 1, 2))
 
     # Changes needed to be made from original version.
     # 1. Load only 16 frames into the buffer.
     # 2. Resize each frame to 224?
     # 3. One video has a label. So a batch of 16 frames is assigned a class.
-    def make_training_data(self, labels_x,frame_location,buffer_size = 16,image_height = 112, image_width = 112):
+    def make_training_data(self, labels_x,frame_location,buffer_size = 64,image_height = 112, image_width = 112):
 
         data_directory = ("{}/{}".format(frame_location, len(labels_x)))
         num_labels = len(labels_x)
-        for label in (labels_x):
+        for label in tqdm(labels_x):
             for video in self.video_id_dictionary[label]:
                 buffer = []
                 path = os.path.join(data_directory, video)
                 number_of_frames = len([file for file in os.listdir(path) if "jpg" in file])
                 try:
                     save_frequency = np.floor(number_of_frames/buffer_size)
+                    if save_frequency == 0:
+                        save_frequency = 1
                     if number_of_frames % save_frequency == 0:
                         save_start = 0
                     else:
@@ -77,7 +98,7 @@ class MyCustomDataset(Dataset):
                         save_start = (np.ceil(number_of_frames/save_frequency)-buffer_size)*save_frequency
                 except Exception as e:
                     print(e)
-                to_repeat = False   
+                to_repeat = False
                 if number_of_frames < buffer_size:
                     repeat = buffer_size - number_of_frames
                     to_repeat = True
@@ -85,21 +106,29 @@ class MyCustomDataset(Dataset):
                     save_start = 1
 
                 counter = 1
-                buffer = np.empty((buffer_size, image_height, image_width, 3), np.dtype('float32'))
+                #buffer = np.empty((buffer_size, image_height, image_width, 3), np.dtype('float32'))
+                buffer = []
                 index = 0
-                for file in (os.listdir(path)):
+                fff = natsort.natsorted(os.listdir(path),reverse=False)
+
+                for file in fff:
                     if (counter % save_frequency == 0 and counter > save_start) or (counter % save_frequency == 0 and counter >= save_start and number_of_frames % save_frequency != 0):
                         if "jpg" in file:
                             try:
                                 path = os.path.join(data_directory, video, file)
-                                img = np.array(cv2.imread(path)).astype(np.float64)
-                                img = cv2.resize(img, (image_height, image_width))
-
-                                buffer[index] = img
+                                #img = np.array(cv2.imread(path))
+                                #img = cv2.resize(img, (image_height, image_width))
+                                #img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
+                                #img = img/255
+                                buffer.append(path)
+                                #print(path)
+                                #buffer[index] = img
                                 index += 1
                                 if counter == number_of_frames and to_repeat == True:
                                     for i in range(repeat+1):
-                                        buffer[index] = img
+                                        #buffer[index] = img
+                                        #buffer.append(img)
+                                        buffer.append(path)
                                         index += 1
                             except Exception as e:
                                 print(e)
@@ -109,8 +138,8 @@ class MyCustomDataset(Dataset):
                 #     print("Buffer is not of the right size")
                 #     print("video:",video ,len(buffer))
                 #     print(f"Video:", video, "Number of frames:", number_of_frames, "Save_frequency:", save_frequency, "Save start:", save_start)
-                self.training_data.append([(np.asarray(buffer)),self.labels_iterated[label]])
-        
+                self.training_data.append([(np.array(buffer)),self.labels_iterated[label]])
+
 
     def Categories(self, category,frame_location):
         # Creating a list for 100, 200, 500, 1000 and 2000 classes with the highest amount of videos.
@@ -156,5 +185,3 @@ class MyCustomDataset(Dataset):
                 self.inv_video_id_dictionary[video] = k
 
         self.make_training_data(self.labels_x, frame_location)
-
-
