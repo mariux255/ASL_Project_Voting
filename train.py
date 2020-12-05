@@ -19,26 +19,26 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(device)
 num_classes = 2000
 dataset = MyCustomDataset("labels_2000")
-#dataset = MyCustomDataset(category='labels_100',json_file_path="/home/marius/Documents/Projects/WLASL_v0.3.json", frame_location="/home/marius/Documents/Projects/Processed_data")
+#dataset = MyCustomDataset(category='labels_2000',json_file_path="/home/marius/Documents/Projects/WLASL_v0.3.json", frame_location="/home/marius/Documents/Projects/Processed_data")
 
 dataset_size = (len(dataset))
 
-val_size = int(np.floor(dataset_size * 0.1))
-test_size = int(np.floor(dataset_size * 0.1))
+val_size = int(np.floor(dataset_size * 0))
+test_size = int(np.floor(dataset_size * 0))
 train_size = int(dataset_size - val_size - test_size)
 trainset, validset, testset = random_split(dataset, [train_size, val_size, test_size])
-bs = 20
+bs = 5
 num_classes = 2000
 dataloader_train = DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=5)
-dataloader_val = DataLoader(validset, batch_size=bs, shuffle=True, num_workers=5)
-dataloader_test = DataLoader(validset, batch_size=bs, shuffle=True, num_workers=5)
+#dataloader_val = DataLoader(validset, batch_size=bs, shuffle=True, num_workers=5)
+#dataloader_test = DataLoader(validset, batch_size=bs, shuffle=True, num_workers=5)
 
-net = models.resnet18(pretrained=True)
-num_ftrs = net.fc.in_features
+#net = models.resnet18(pretrained=True)
+#num_ftrs = net.fc.in_features
 # Here the size of each output sample is set to 2.
 # Alternatively, it can be generalized to nn.Linear(num_ftrs, len(class_names)).
-net.fc = nn.Linear(num_ftrs, 2000)
-
+#net.fc = nn.Linear(num_ftrs, 2000)
+net = torch.load('ResNet18.pt')
 net = net.to(device)
 
 #net = Net()
